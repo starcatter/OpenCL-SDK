@@ -34,6 +34,35 @@ public:
     CliOptions app_opts;
 
 private:
+    template <typename T> struct TimingData
+    {
+        T start;
+        T await_fences;
+        T acquire_image;
+
+            T title_fps;
+            T uniforms;
+            T openCL_start;
+            T openCL_done;
+
+        T update_ocean;
+
+        T await_submit;
+        T rendering_start;
+        T rendering_done;
+        T end;
+
+        double vk_render_ns;
+
+        explicit TimingData(T start);
+    };
+
+    std::vector<TimingData<std::chrono::high_resolution_clock::time_point>> samples;
+
+private:
+    // TODO: identify pool size by scanning benchmark requirements
+    static const int DefaultQueryPoolSize = 6;
+
     GLFWwindow* window = nullptr;
     Camera camera;
     std::string app_name = "Ocean Surface Simulation";
@@ -106,6 +135,7 @@ private:
     VkPipeline wireframe_pipeline;
 
     VkCommandPool command_pool;
+    VkQueryPool query_pool;
 
     VkBuffer staging_tex_buffer;
     VkDeviceMemory staging_tex_buffer_memory;
@@ -207,6 +237,12 @@ private:
     std::array<std::vector<std::unique_ptr<cl::Image2D>>, IOPT_COUNT>
         ocl_image_mems;
 
+    // How many (out of 64) bits are used to store the timestamp
+    uint32_t timestampValidBits{};
+    // The timestampPeriod property of the device tells how many nanoseconds a
+    // timestep translates to
+    float timestampPeriod{};
+
     void init_window();
     void init_openCL();
     void init_openCL_mems();
@@ -222,6 +258,7 @@ private:
     void create_surface();
     void pick_physical_device();
     void create_logical_device();
+    void init_timestamp_params(uint32_t graphicsFamilyIndex);
     void create_swap_chain();
     void create_swap_chain_image_views();
     void create_render_pass();
@@ -230,6 +267,7 @@ private:
     void create_graphics_pipeline();
     void create_framebuffers();
     void create_command_pool();
+    void create_query_pool();
     void create_vertex_buffers();
     void create_index_buffers();
     void create_texture_images();
@@ -290,6 +328,9 @@ private:
     void show_fps_window_title();
     void update_spectrum(uint32_t currentImage, float elapsed);
     void update_ocean(uint32_t currentImage);
+    double get_timestamp(uint32_t currentImage);
+    double calculate_timestamp_ns(uint64_t start, uint64_t end);
+
 
     void draw_frame();
 
@@ -324,6 +365,9 @@ private:
                    VkDebugUtilsMessageTypeFlagsEXT messageType,
                    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                    void* pUserData);
+    void print_results(long runtime_milliseconds);
 };
+
+template <typename T> OceanApplication::TimingData<T>::TimingData(T start) : start(start) {}
 
 #endif // OCEAN_HPP

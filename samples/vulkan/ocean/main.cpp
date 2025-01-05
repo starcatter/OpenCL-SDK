@@ -53,13 +53,20 @@ void OceanApplication::main_loop()
     glfwSetCursorPosCallback(window, glfw_mouse_pos);
     glfwSetScrollCallback(window, glfw_mouse_roll);
 
+    auto start = std::chrono::high_resolution_clock::now();
     while (!glfwWindowShouldClose(window))
     {
+        samples.emplace_back(std::chrono::high_resolution_clock::now());
         draw_frame();
         glfwPollEvents();
+        samples.back().end = std::chrono::high_resolution_clock::now();
     }
+    auto end = std::chrono::high_resolution_clock::now();
 
     vkDeviceWaitIdle(device);
+
+    long runtime_milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    print_results(runtime_milliseconds);
 }
 
 template <> auto cl::sdk::parse<CliOptions>()
