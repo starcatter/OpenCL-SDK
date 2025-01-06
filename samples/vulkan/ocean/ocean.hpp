@@ -34,6 +34,13 @@ public:
     CliOptions app_opts;
 
 private:
+    struct PerFrameData{
+        UniformBufferObject data;
+        void * buffer_memory;
+    };
+
+    std::vector<PerFrameData> per_frame;
+
     template <typename T> struct TimingData
     {
         T start;

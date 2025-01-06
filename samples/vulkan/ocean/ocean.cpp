@@ -97,7 +97,8 @@ void OceanApplication::init_openCL()
 
     context = cl::Context{ devices[dev_opts.triplet.dev_index] };
     command_queue =
-        cl::CommandQueue{ context, devices[dev_opts.triplet.dev_index], CL_QUEUE_PROFILING_ENABLE };
+        cl::CommandQueue{ context, devices[dev_opts.triplet.dev_index],
+                          CL_QUEUE_PROFILING_ENABLE };
 
     auto build_opencl_kernel = [&](const char* src_file, cl::Kernel& kernel,
                                    const char* name) {
@@ -862,13 +863,17 @@ void OceanApplication::create_uniform_buffer()
     uniform_buffers.resize(swap_chain_images.size());
     uniform_buffers_memory.resize(swap_chain_images.size());
 
+    per_frame.resize(swap_chain_images.size());
+
     for (size_t i = 0; i < uniform_buffers.size(); i++)
     {
-        create_buffer(bufferSize,
-                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-                          | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, uniform_buffers[i],
-                      uniform_buffers_memory[i]);
+        create_buffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                          | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      uniform_buffers[i], uniform_buffers_memory[i]);
+
+        vkMapMemory(device, uniform_buffers_memory[i], 0, bufferSize, 0,
+                    &per_frame[i].buffer_memory);
     }
 }
 
@@ -1612,10 +1617,7 @@ void OceanApplication::transition_uniform_layout(VkBuffer buffer,
 
     if (src == VK_ACCESS_SHADER_READ_BIT)
     {
-        sourceStage =
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT /*|
-                                                     VK_PIPELINE_STAGE_VERTEX_SHADER_BIT*/
-            /*| VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR*/;
+        sourceStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
         destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     }
 
@@ -1843,6 +1845,7 @@ void OceanApplication::end_single_time_commands(VkCommandBuffer commandBuffer)
 void OceanApplication::create_command_buffers()
 {
     command_buffers.resize(swap_chain_framebuffers.size());
+    per_frame.resize(swap_chain_framebuffers.size());
 
     VkCommandBufferAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -1904,7 +1907,6 @@ void OceanApplication::create_command_buffers()
         vkCmdBindIndexBuffer(command_buffers[i], index_buffer.buffers[i], 0,
                              VK_INDEX_TYPE_UINT32);
 
-
         vkCmdDrawIndexed(command_buffers[i],
                          static_cast<uint32_t>(ocean_grid_indices.size()), 1, 0,
                          0, 0);
@@ -1959,12 +1961,14 @@ void OceanApplication::create_sync_objects()
 
 void OceanApplication::update_uniforms(uint32_t currentImage)
 {
-    UniformBufferObject ubo = {};
+    UniformBufferObject& ubo = per_frame[currentImage].data;
+
     ubo.choppiness = choppiness;
     ubo.alt_scale = alt_scale;
 
     // update camera related uniform
-    glm::mat4 view_matrix = glm::lookAt(camera.eye, camera.eye + camera.dir, camera.up);
+    glm::mat4 view_matrix =
+        glm::lookAt(camera.eye, camera.eye + camera.dir, camera.up);
 
     float fov = (float)glm::radians(60.0);
     float aspect = (float)app_opts.window_width / app_opts.window_height;
@@ -1975,18 +1979,8 @@ void OceanApplication::update_uniforms(uint32_t currentImage)
     ubo.view_mat = view_matrix;
     ubo.proj_mat = proj_matrix;
 
-    transition_uniform_layout(uniform_buffers[currentImage],
-                              VK_ACCESS_SHADER_READ_BIT,
-                              VK_ACCESS_TRANSFER_WRITE_BIT);
-
-    VkCommandBuffer commandBuffer = begin_single_time_commands();
-    vkCmdUpdateBuffer(commandBuffer, uniform_buffers[currentImage], 0,
-                      sizeof(UniformBufferObject), &ubo);
-    end_single_time_commands(commandBuffer);
-
-    transition_uniform_layout(uniform_buffers[currentImage],
-                              VK_ACCESS_TRANSFER_WRITE_BIT,
-                              VK_ACCESS_SHADER_READ_BIT);
+    memcpy(per_frame[currentImage].buffer_memory, &ubo,
+           sizeof(UniformBufferObject));
 }
 
 void OceanApplication::update_spectrum(uint32_t currentImage, float elapsed)
@@ -2798,9 +2792,10 @@ double OceanApplication::get_timestamp(uint32_t currentImage)
     double elapsed = calculate_timestamp_ns(data.at(0), data.at(1));
     return elapsed;
 
-//    double fps = 1. / (elapsed/1000000000.);
+    //    double fps = 1. / (elapsed/1000000000.);
 
-//    printf("Timestamp (image:%u): %3.6lf ms / %4.1lf FPS\n", currentImage, elapsed/1'000'000., fps);
+    //    printf("Timestamp (image:%u): %3.6lf ms / %4.1lf FPS\n", currentImage,
+    //    elapsed/1'000'000., fps);
 }
 double OceanApplication::calculate_timestamp_ns(uint64_t start, uint64_t end)
 {
@@ -2818,68 +2813,92 @@ double OceanApplication::calculate_timestamp_ns(uint64_t start, uint64_t end)
 }
 void OceanApplication::print_results(long runtime_milliseconds)
 {
-    double avg_frame=0,
-           avg_ocl=0,
-           avg_uniforms=0,
-           avg_title=0,
-           avg_ocean=0,
-           avg_render=0,
-           avg_wait=0,
-           avg_ack=0,
-           avg_wait2=0, avg_vk_ns = 0;
+    double avg_frame = 0, avg_ocl = 0, avg_uniforms = 0, avg_title = 0,
+           avg_ocean = 0, avg_render = 0, avg_wait = 0, avg_ack = 0,
+           avg_wait2 = 0, avg_vk_ns = 0;
 
-    for(auto sample : samples){
+    for (auto sample : samples)
+    {
         // render loop time
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds>( sample.end - sample.start).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.end - sample.start)
+                    .count();
             avg_frame += delta / samples.size();
         }
 
         // initial wait for fences at frame start
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds>( sample.await_fences - sample.start).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.await_fences - sample.start)
+                    .count();
             avg_wait += delta / samples.size();
         }
 
         // time spent updating titlebar FPS
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds >( sample.title_fps - sample.acquire_image).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.title_fps - sample.acquire_image)
+                    .count();
             avg_title += delta / samples.size();
         }
 
         // time spent updating scene uniforms
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds >( sample.uniforms - sample.title_fps).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.uniforms - sample.title_fps)
+                    .count();
             avg_uniforms += delta / samples.size();
         }
 
-        // time spent submitting/fetching OpenCL work AND transferring results to vk
+        // time spent submitting/fetching OpenCL work AND transferring results
+        // to vk
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds >( sample.openCL_done - sample.openCL_start).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.openCL_done - sample.openCL_start)
+                    .count();
             avg_ocl += delta / samples.size();
         }
 
-        // time spent calling update_ocean() after vkAcquireNextImageKHR() finished
+        // time spent calling update_ocean() after vkAcquireNextImageKHR()
+        // finished
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds >( sample.update_ocean - sample.acquire_image).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.update_ocean - sample.acquire_image)
+                    .count();
             avg_ocean += delta / samples.size();
         }
 
         // time spent submitting the next frame to queue
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds>( sample.rendering_done - sample.rendering_start).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.rendering_done - sample.rendering_start)
+                    .count();
             avg_render += delta / samples.size();
         }
 
         // time spent waiting for vkAcquireNextImageKHR()
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds>( sample.acquire_image - sample.await_fences).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.acquire_image - sample.await_fences)
+                    .count();
             avg_ack += delta / samples.size();
         }
 
         // time spent in vkWaitForFences() woiting on images_in_flight
         {
-            double delta = std::chrono::duration_cast<std::chrono::milliseconds>( sample.await_submit - sample.update_ocean).count();
+            double delta =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    sample.await_submit - sample.update_ocean)
+                    .count();
             avg_wait2 += delta / samples.size();
         }
 
@@ -2887,16 +2906,23 @@ void OceanApplication::print_results(long runtime_milliseconds)
         avg_vk_ns += sample.vk_render_ns / samples.size();
     }
 
-    printf("Average time: %6.3lf ms / %4.1lf FPS; Took %lu samples\n", avg_frame, (1000. / avg_frame), samples.size());
+    printf("Average time: %6.3lf ms / %4.1lf FPS; Took %lu samples\n",
+           avg_frame, (1000. / avg_frame), samples.size());
 
-    double ms_per_frame = (runtime_milliseconds*1.) / (samples.size()*1.);
+    double ms_per_frame = (runtime_milliseconds * 1.) / (samples.size() * 1.);
 
-    printf("Program ran for: %li ms / effective ms/frame: %2.6lf / %6.1lf FPS\n", runtime_milliseconds, ms_per_frame, samples.size()/(runtime_milliseconds/1000.));
+    printf(
+        "Program ran for: %li ms / effective ms/frame: %2.6lf / %6.1lf FPS\n",
+        runtime_milliseconds, ms_per_frame,
+        samples.size() / (runtime_milliseconds / 1000.));
 
     printf("Average time spent on: \n ");
-    printf("    OpenCL: %3.6lf ms (update_ocean:  %3.6lf ms) \n ", avg_ocl, avg_ocean);
-    printf("        title bar: %3.6lf ms / uniforms :  %3.6lf ms) \n ", avg_title, avg_uniforms);
-    printf("    Rendering: %3.6lf ms (submit: %3.6lf ms)\n ", avg_vk_ns / 1'000'000., avg_render);
+    printf("    OpenCL: %3.6lf ms (update_ocean:  %3.6lf ms) \n ", avg_ocl,
+           avg_ocean);
+    printf("        title bar: %3.6lf ms / uniforms :  %3.6lf ms) \n ",
+           avg_title, avg_uniforms);
+    printf("    Rendering: %3.6lf ms (submit: %3.6lf ms)\n ",
+           avg_vk_ns / 1'000'000., avg_render);
     printf("    Waiting to start: %3.6lf ms \n ", avg_wait);
     printf("    Acquiring image: %3.6lf ms\n ", avg_ack);
     printf("    Waiting to submit: %3.6lf ms\n", avg_wait2);
