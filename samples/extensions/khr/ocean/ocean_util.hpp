@@ -189,8 +189,8 @@ struct Camera
 
 struct CliOptions
 {
-    size_t num_instaces=1;
     bool use_gl_sharing = true;
+    size_t num_instaces=1;
 };
 
 #endif // OCEAN_UTIL_HPP

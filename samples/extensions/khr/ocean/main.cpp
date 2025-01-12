@@ -547,17 +547,19 @@ template <> auto cl::sdk::parse<CliOptions>()
 {
     return std::make_tuple(
         std::make_shared<TCLAP::ValueArg<bool>>("", "useGLSharing",
-                                                "Use cl_khr_gl_sharing",
-                                                false, true, "boolean"));
+                                                "Use cl_khr_gl_sharing", false,
+                                                true, "boolean"),
+        std::make_shared<TCLAP::ValueArg<size_t>>(
+            "", "numInstances", "Number of ocean grid instances", false, 1,
+            "positive integral"));
 }
 
 template <>
 CliOptions cl::sdk::comprehend<CliOptions>(
-    std::shared_ptr<TCLAP::ValueArg<bool>> useGLSharing)
+    std::shared_ptr<TCLAP::ValueArg<bool>> useGLSharing,
+    std::shared_ptr<TCLAP::ValueArg<size_t>> num_instaces)
 {
-    return CliOptions{
-        useGLSharing->getValue()
-    };
+    return CliOptions{ useGLSharing->getValue(), num_instaces->getValue() };
 }
 
 int main(int argc, char* argv[])
