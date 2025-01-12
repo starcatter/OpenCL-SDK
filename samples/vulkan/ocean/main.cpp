@@ -74,7 +74,7 @@ void OceanApplication::main_loop()
     auto in_time_t = std::chrono::system_clock::to_time_t(end);
 
     std::stringstream ss;
-    ss << "timings_";
+    ss << "timings_vk_interop_";
     ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
     ss << ".csv";
 

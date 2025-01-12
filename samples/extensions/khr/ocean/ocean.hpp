@@ -26,6 +26,8 @@
 // OpenGL includes
 #include <SFML/OpenGL.hpp>
 
+using clock_type = std::chrono::high_resolution_clock;
+
 class OceanApplication : public cl::sdk::InteropWindow {
 public:
     explicit OceanApplication(unsigned int platform_id = 0, unsigned int device_id = 0,
@@ -39,10 +41,11 @@ public:
                              sf::ContextSettings::Attribute::Core },
                          platform_id,
                          device_id,
-                         device_type }, platformId((cl_platform_id)platform_id)    {}
+                         device_type }    {}
 
     ~OceanApplication() {cleanup();}
-    cl_platform_id platformId;
+
+    void save_results(std::string filename);
 
 protected:
     virtual void
@@ -87,6 +90,31 @@ public:
     size_t num_instances=1;
 
 private:
+
+
+    // Poza startem, timestampy są po każdej czynności
+    template <typename T> struct TimingData
+    {
+        T start; // 0: początek render loop
+
+        T openCL_start;
+        T openCL_done;
+
+        T openGL_start;
+        T openGL_done;
+
+        T end; // 8: koniec render loop
+
+        size_t frame_cnt; // D: Licznik klatek
+
+        explicit TimingData(T start);
+    };
+
+    std::vector<TimingData<clock_type::time_point>> samples;
+
+
+
+
 
     Camera camera;
     std::string app_name = "Ocean Surface Simulation";
@@ -192,5 +220,9 @@ private:
 
     std::array<std::unique_ptr<cl::Image2D>, IOPT_COUNT> ocl_image_mems;
 };
+
+template <typename T>
+OceanApplication::TimingData<T>::TimingData(T start): start(start)
+{}
 
 #endif // OCEAN_HPP

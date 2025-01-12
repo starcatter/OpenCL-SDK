@@ -25,6 +25,7 @@
 
 #include <glm/glm.hpp>
 
+#include <chrono>
 #include <iostream>
 
 #define CL_HPP_TARGET_OPENCL_VERSION 300

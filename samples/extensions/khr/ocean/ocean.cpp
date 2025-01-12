@@ -79,8 +79,8 @@ void OceanApplication::initializeGL()
         return program;
     };
 
-    cl_GLuint vertex_shader = create_shader("ocean.vert", GL_VERTEX_SHADER);
-    cl_GLuint fragment_shader = create_shader("ocean.frag", GL_FRAGMENT_SHADER);
+    cl_GLuint vertex_shader = create_shader("ocean.vert.glsl", GL_VERTEX_SHADER);
+    cl_GLuint fragment_shader = create_shader("ocean.frag.glsl", GL_FRAGMENT_SHADER);
     gl_program = create_program({ vertex_shader, fragment_shader });
 
     glUseProgram(gl_program);
@@ -97,17 +97,12 @@ void OceanApplication::initializeGL()
     glDisable(GL_CULL_FACE);
 }
 
-using test_clock = std::chrono::high_resolution_clock;
-std::chrono::system_clock::time_point start_perf;
-std::chrono::system_clock::time_point end_perf;
-const int max_perf_count=100;
 void OceanApplication::updateScene()
 {
     show_fps_window_title();
 
-static float perf_avg=0.f;
-static int perf_cnt=0;
-start_perf = test_clock::now();
+
+samples.back().openCL_start = clock_type::now();
 
 
     update_uniforms();
@@ -132,24 +127,15 @@ start_perf = test_clock::now();
         command_queue.finish();
     }
 
-end_perf = test_clock::now();
-std::chrono::duration<float> elapsed_seconds = end_perf - start_perf;
-perf_avg+=elapsed_seconds.count();
-perf_cnt++;
-if(perf_cnt==max_perf_count)
-{
-
-    printf("chrono time OpenCL processing: %f\n", perf_avg/perf_cnt);
-    perf_cnt=0;
-    perf_avg=0.f;
-}
+samples.back().openCL_done = clock_type::now();
+samples.back().end = clock_type::now();
 }
 
 void OceanApplication::render()
 {
-static float perf_avg=0.f;
-static int perf_cnt=0;
-start_perf = test_clock::now();
+samples.emplace_back(clock_type::now());
+samples.back().openGL_start = clock_type::now();
+samples.back().frame_cnt = samples.size();
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glUseProgram(gl_program);
@@ -185,17 +171,7 @@ start_perf = test_clock::now();
     else
         glFlush();
 
-end_perf = test_clock::now();
-std::chrono::duration<float> elapsed_seconds = end_perf - start_perf;
-perf_avg+=elapsed_seconds.count();
-perf_cnt++;
-if(perf_cnt==max_perf_count)
-{
-
-    printf("chrono time OpenGL processing: %f\n", perf_avg/perf_cnt);
-    perf_cnt=0;
-    perf_avg=0.f;
-}
+samples.back().openGL_done = clock_type::now();
 }
 
 void OceanApplication::cleanup()
@@ -371,4 +347,68 @@ void OceanApplication::update_uniforms()
     GLuint blockIndex = glGetUniformBlockIndex(gl_program, "ViewData");
     glUniformBlockBinding(gl_program, blockIndex, 2);
     glBindBufferBase(GL_UNIFORM_BUFFER, 2, view_data_ubo);
+}
+
+std::string time_point_to_string(const clock_type::time_point& tp)
+{
+    auto in_time_t = std::chrono::system_clock::to_time_t(tp);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&in_time_t), "%X");
+
+    // Get the duration since the epoch
+    auto duration = tp.time_since_epoch();
+
+    // Convert to microseconds
+    auto micros =
+        std::chrono::duration_cast<std::chrono::microseconds>(duration).count()
+        % 1000000;
+
+    ss << "." << std::setfill('0') << std::setw(6) << micros;
+
+    return ss.str();
+}
+
+std::string time_point_delta_to_string(const clock_type::time_point& prev,
+                                       const clock_type::time_point& now)
+{
+    auto delta =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - prev)
+            .count();
+
+    return std::to_string(delta);
+}
+
+void OceanApplication::save_results(std::string filename)
+{
+    std::ofstream file(filename);
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open file: " << filename << std::endl;
+        return;
+    }
+
+    // Write header
+    file << "frame_cnt,frame_time,start,openCL_start,openCL_done,"
+         << "openGL_start,openGL_done,end\n";
+
+    // Write data
+    for (const auto& sample : samples)
+    {
+        file << (sample.frame_cnt) << ","
+             << time_point_delta_to_string(sample.start, sample.end) << ","
+             << time_point_to_string(sample.start) << ","
+             << time_point_delta_to_string(sample.openGL_done,
+                                           sample.openCL_start)
+             << ","
+             << time_point_delta_to_string(sample.openCL_start,
+                                           sample.openCL_done)
+             << ","
+             << time_point_delta_to_string(sample.start, sample.openGL_start)
+             << ","
+             << time_point_delta_to_string(sample.openGL_start,
+                                           sample.openGL_done)
+             << "," << time_point_to_string(sample.end) << "\n";
+    }
+
+    file.close();
 }

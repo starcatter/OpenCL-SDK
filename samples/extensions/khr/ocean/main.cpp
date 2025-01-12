@@ -62,6 +62,7 @@ void OceanApplication::event(const sf::Event& event)
             break;
         default: break;
     }
+samples.back().end = clock_type::now();
 }
 
 void OceanApplication::mouseDrag(const int x, const int y)
@@ -188,30 +189,7 @@ void OceanApplication::initializeCL()
 {
     auto device = opencl_context.getInfo<CL_CONTEXT_DEVICES>().at(0);
 
-    cl_command_queue_properties device_props = 0;
-    cl_int err = clGetDeviceInfo(device(), CL_DEVICE_QUEUE_PROPERTIES, sizeof(device_props), &device_props, NULL);
-
-    if (err!=CL_SUCCESS || ((device_props & CL_QUEUE_PROFILING_ENABLE)==0))
-    {
-        printf("CL_QUEUE_PROFILING_ENABLE not supported\n");
-    }
-
-
-    cl_ulong timer_resolution = 0;
-    err =
-        clGetPlatformInfo(getPlatformFromDevice(device()), CL_PLATFORM_HOST_TIMER_RESOLUTION,
-                          sizeof(timer_resolution), &timer_resolution, NULL);
-
-    // If CL_PLATFORM_HOST_TIMER_RESOLUTION returns 0, clGetDeviceAndHostTimer
-    // is not a supported feature
-    if (err!=CL_SUCCESS || timer_resolution == 0 )
-    {
-        printf("CL_QUEUE_PROFILING_ENABLE not supported\n");
-    }
-
-
-
-    command_queue = cl::CommandQueue{ opencl_context, device, CL_QUEUE_PROFILING_ENABLE };
+    command_queue = cl::CommandQueue{ opencl_context, device/*, CL_QUEUE_PROFILING_ENABLE*/ };
 
     if (use_cl_khr_gl_sharing
         && cl::util::supports_extension(device, "cl_khr_gl_sharing"))
@@ -410,10 +388,6 @@ void OceanApplication::update_spectrum(float elapsed)
         }
     }
 
-
-    cl::Event start_event;
-    cl::Event end_event;
-
     // ping-pong phase spectrum kernel launch
     try
     {
@@ -426,7 +400,7 @@ void OceanApplication::update_spectrum(float elapsed)
 
         command_queue.enqueueNDRangeKernel(
             time_spectrum_kernel, cl::NullRange,
-            cl::NDRange{ ocean_tex_size, ocean_tex_size }, lws, nullptr, &start_event);
+            cl::NDRange{ ocean_tex_size, ocean_tex_size }, lws, nullptr);
     } catch (const cl::Error& e)
     {
         printf("updateSpectrum: OpenCL %s kernel error: %s\n", e.what(),
@@ -538,31 +512,8 @@ void OceanApplication::update_spectrum(float elapsed)
 
         command_queue.enqueueNDRangeKernel(
             normals_kernel, cl::NullRange,
-            cl::NDRange{ ocean_tex_size, ocean_tex_size }, lws, nullptr, &end_event);
+            cl::NDRange{ ocean_tex_size, ocean_tex_size }, lws, nullptr);
     }
-
-
-
-
-cl_long  writeStart, writeEnd;
-cl_int error0=clGetEventProfilingInfo( start_event(), CL_PROFILING_COMMAND_START, sizeof( writeStart ), &writeStart, NULL );
-cl_int error1=clGetEventProfilingInfo( end_event(), CL_PROFILING_COMMAND_COMPLETE, sizeof( writeEnd ), &writeEnd, NULL );
-
-if (error0==CL_SUCCESS && error1==CL_SUCCESS)
-{
-    double startToEndTimeS = ((double)abs(writeEnd - writeStart)) * 1e-9;
-
-    static double perf_avg=0.0;
-    static int perf_cnt=0;
-    perf_avg+=startToEndTimeS;
-    perf_cnt++;
-    if(perf_cnt==100)
-    {
-        printf("OpenCL profiling vals: %f\n", perf_avg/perf_cnt);
-        perf_cnt=0;
-        perf_avg=0.f;
-    }
-}
 
     if(use_cl_khr_gl_sharing)
     {
@@ -611,6 +562,8 @@ CliOptions cl::sdk::comprehend<CliOptions>(
 
 int main(int argc, char* argv[])
 {
+    auto start = clock_type::now();
+
     OceanApplication app;
 
     try
@@ -650,6 +603,26 @@ int main(int argc, char* argv[])
         std::cerr << "Error: " << e.what() << std::endl;
         std::exit(EXIT_FAILURE);
     }
+
+
+
+
+
+    auto end = clock_type::now();
+    // generate file name
+    auto in_time_t = std::chrono::system_clock::to_time_t(end);
+
+    std::stringstream ss;
+    ss << "timings_gl_interop_";
+    ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
+    ss << ".csv";
+
+    const auto filename = ss.str();
+
+    app.save_results(filename);
+
+
+
 
     return 0;
 }
