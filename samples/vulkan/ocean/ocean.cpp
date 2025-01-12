@@ -1908,7 +1908,7 @@ void OceanApplication::create_command_buffers()
                              VK_INDEX_TYPE_UINT32);
 
         vkCmdDrawIndexed(command_buffers[i],
-                         static_cast<uint32_t>(ocean_grid_indices.size()), 1, 0,
+                         static_cast<uint32_t>(ocean_grid_indices.size()), app_opts.num_instances, 0,
                          0, 0);
 
         vkCmdEndRenderPass(command_buffers[i]);
