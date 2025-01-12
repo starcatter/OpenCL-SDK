@@ -33,7 +33,7 @@
 
 const float DRAG_SPEED_FAC = 0.2f;
 const float ROLL_SPEED_FAC = 8.f;
-const int MAX_FRAMES_IN_FLIGHT = 2;
+const int MAX_FRAMES_IN_FLIGHT = 3;
 
 static const char* IGetErrorString(int clErrorCode)
 {

@@ -2227,17 +2227,15 @@ void OceanApplication::show_fps_window_title()
 void OceanApplication::update_ocean(uint32_t currentImage)
 {
     show_fps_window_title();
-    samples.back().title_fps = std::chrono::high_resolution_clock::now();
 
     update_uniforms(currentImage);
-    samples.back().uniforms = std::chrono::high_resolution_clock::now();
 
     auto end = std::chrono::system_clock::now();
 
     // time factor of ocean animation
     static float elapsed = 0.f;
 
-    samples.back().openCL_start = std::chrono::high_resolution_clock::now();
+    samples.back().openCL_start = clock_type::now();
     if (animate)
     {
         std::chrono::duration<float> delta = end - start;
@@ -2307,7 +2305,7 @@ void OceanApplication::update_ocean(uint32_t currentImage)
             command_queue.finish();
         }
     }
-    samples.back().openCL_done = std::chrono::high_resolution_clock::now();
+    samples.back().openCL_done = clock_type::now();
 }
 
 void OceanApplication::draw_frame()
@@ -2317,18 +2315,23 @@ void OceanApplication::draw_frame()
 
     auto& sample = samples.back();
 
-    sample.await_fences = std::chrono::high_resolution_clock::now();
+    sample.frame_cnt = samples.size();
+    sample.frame_index = current_frame;
+
+    sample.await_fences = clock_type::now();
 
     uint32_t imageIndex;
     vkAcquireNextImageKHR(device, swap_chain, UINT64_MAX,
                           image_available_semaphores[current_frame],
                           VK_NULL_HANDLE, &imageIndex);
 
-    sample.acquire_image = std::chrono::high_resolution_clock::now();
+    sample.acquire_image = clock_type::now();
+
+    sample.image_index = imageIndex;
 
     update_ocean(imageIndex);
 
-    sample.update_ocean = std::chrono::high_resolution_clock::now();
+    sample.update_ocean = clock_type::now();
 
     if (images_in_flight[imageIndex] != VK_NULL_HANDLE)
     {
@@ -2337,7 +2340,7 @@ void OceanApplication::draw_frame()
     }
     images_in_flight[imageIndex] = in_flight_fences[current_frame];
 
-    sample.await_submit = std::chrono::high_resolution_clock::now();
+    sample.await_image = clock_type::now();
 
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -2359,13 +2362,14 @@ void OceanApplication::draw_frame()
 
     vkResetFences(device, 1, &in_flight_fences[current_frame]);
 
-    sample.rendering_start = std::chrono::high_resolution_clock::now();
+    sample.submit_ready = clock_type::now();
     if (vkQueueSubmit(graphics_queue, 1, &submitInfo,
                       in_flight_fences[current_frame])
         != VK_SUCCESS)
     {
         throw std::runtime_error("failed to submit draw command buffer!");
     }
+    sample.submit_done = clock_type::now();
 
     VkPresentInfoKHR presentInfo{};
     presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -2379,7 +2383,8 @@ void OceanApplication::draw_frame()
     presentInfo.pImageIndices = &imageIndex;
 
     vkQueuePresentKHR(present_queue, &presentInfo);
-    sample.rendering_done = std::chrono::high_resolution_clock::now();
+
+    sample.present_done = clock_type::now();
 
     sample.vk_render_ns = get_timestamp(imageIndex);
 
@@ -2813,93 +2818,88 @@ double OceanApplication::calculate_timestamp_ns(uint64_t start, uint64_t end)
 }
 void OceanApplication::print_results(long runtime_milliseconds)
 {
-    double avg_frame = 0, avg_ocl = 0, avg_uniforms = 0, avg_title = 0,
-           avg_ocean = 0, avg_render = 0, avg_wait = 0, avg_ack = 0,
-           avg_wait2 = 0, avg_vk_ns = 0;
+    uint64_t total_us = 0;
 
+    double avg_frame_us = 0, avg_ocl_us = 0, avg_update_data_us = 0,
+           avg_title = 0, avg_submit_us = 0, avg_wait_start_us = 0,
+           avg_ack_us = 0, avg_present_us = 0, avg_vk_ns = 0;
+
+    auto samples_double = static_cast<double>(samples.size());
     for (auto sample : samples)
     {
+        // calculate total measured
+        {
+            uint64_t delta =
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    sample.end - sample.start)
+                    .count();
+
+            total_us += delta;
+        }
+
         // render loop time
         {
             double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
                     sample.end - sample.start)
                     .count();
-            avg_frame += delta / samples.size();
+            avg_frame_us += delta / samples_double;
         }
 
         // initial wait for fences at frame start
         {
             double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
                     sample.await_fences - sample.start)
                     .count();
-            avg_wait += delta / samples.size();
-        }
-
-        // time spent updating titlebar FPS
-        {
-            double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    sample.title_fps - sample.acquire_image)
-                    .count();
-            avg_title += delta / samples.size();
-        }
-
-        // time spent updating scene uniforms
-        {
-            double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    sample.uniforms - sample.title_fps)
-                    .count();
-            avg_uniforms += delta / samples.size();
+            avg_wait_start_us += delta / samples_double;
         }
 
         // time spent submitting/fetching OpenCL work AND transferring results
         // to vk
         {
             double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
                     sample.openCL_done - sample.openCL_start)
                     .count();
-            avg_ocl += delta / samples.size();
+            avg_ocl_us += delta / samples_double;
         }
 
         // time spent calling update_ocean() after vkAcquireNextImageKHR()
         // finished
         {
             double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
                     sample.update_ocean - sample.acquire_image)
                     .count();
-            avg_ocean += delta / samples.size();
+            avg_update_data_us += delta / samples_double;
         }
 
         // time spent submitting the next frame to queue
         {
             double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    sample.rendering_done - sample.rendering_start)
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    sample.submit_done - sample.submit_ready)
                     .count();
-            avg_render += delta / samples.size();
+            avg_submit_us += delta / samples_double;
         }
 
         // time spent waiting for vkAcquireNextImageKHR()
         {
             double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::duration_cast<std::chrono::microseconds>(
                     sample.acquire_image - sample.await_fences)
                     .count();
-            avg_ack += delta / samples.size();
+            avg_ack_us += delta / samples_double;
         }
 
         // time spent in vkWaitForFences() woiting on images_in_flight
         {
             double delta =
-                std::chrono::duration_cast<std::chrono::milliseconds>(
-                    sample.await_submit - sample.update_ocean)
+                std::chrono::duration_cast<std::chrono::microseconds>(
+                    sample.present_done - sample.submit_done)
                     .count();
-            avg_wait2 += delta / samples.size();
+            avg_present_us += delta / samples_double;
         }
 
         // avg time Vulkan took to process the command buffer
@@ -2907,7 +2907,9 @@ void OceanApplication::print_results(long runtime_milliseconds)
     }
 
     printf("Average time: %6.3lf ms / %4.1lf FPS; Took %lu samples\n",
-           avg_frame, (1000. / avg_frame), samples.size());
+           avg_frame_us / 1000., (1000'000. / avg_frame_us), samples.size());
+
+    printf("Total measured: %6.6lf ms (%6lu us)\n", total_us / 1000., total_us);
 
     double ms_per_frame = (runtime_milliseconds * 1.) / (samples.size() * 1.);
 
@@ -2917,13 +2919,94 @@ void OceanApplication::print_results(long runtime_milliseconds)
         samples.size() / (runtime_milliseconds / 1000.));
 
     printf("Average time spent on: \n ");
-    printf("    OpenCL: %3.6lf ms (update_ocean:  %3.6lf ms) \n ", avg_ocl,
-           avg_ocean);
-    printf("        title bar: %3.6lf ms / uniforms :  %3.6lf ms) \n ",
-           avg_title, avg_uniforms);
-    printf("    Rendering: %3.6lf ms (submit: %3.6lf ms)\n ",
-           avg_vk_ns / 1'000'000., avg_render);
-    printf("    Waiting to start: %3.6lf ms \n ", avg_wait);
-    printf("    Acquiring image: %3.6lf ms\n ", avg_ack);
-    printf("    Waiting to submit: %3.6lf ms\n", avg_wait2);
+    printf("    OpenCL: %3.6lf ms (update_ocean:  %3.6lf ms) \n ",
+           avg_ocl_us / 1000., avg_update_data_us / 1000.);
+    printf(
+        "    Rendering: %3.6lf ms (submit: %3.6lf ms, present: %3.6lf ms)\n ",
+        avg_vk_ns / 1'000'000., avg_submit_us / 1000., avg_present_us / 1000.);
+    printf("    Waiting to start: %3.6lf ms \n ", avg_wait_start_us / 1000.);
+    printf("    Acquiring image: %3.6lf ms\n ", avg_ack_us / 1000.);
+}
+
+std::string time_point_to_string(const clock_type::time_point& tp)
+{
+    auto in_time_t = std::chrono::system_clock::to_time_t(tp);
+    std::stringstream ss;
+    ss << std::put_time(std::localtime(&in_time_t), "%X");
+
+    // Get the duration since the epoch
+    auto duration = tp.time_since_epoch();
+
+    // Convert to microseconds
+    auto micros =
+        std::chrono::duration_cast<std::chrono::microseconds>(duration).count()
+        % 1000000;
+
+    ss << "." << std::setfill('0') << std::setw(6) << micros;
+
+    return ss.str();
+}
+
+std::string time_point_delta_to_string(const clock_type::time_point& prev,
+                                       const clock_type::time_point& now)
+{
+    auto delta =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(now - prev)
+            .count();
+
+    return std::to_string(delta);
+}
+
+void OceanApplication::save_results(std::string filename)
+{
+    std::ofstream file(filename);
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open file: " << filename << std::endl;
+        return;
+    }
+
+    // Write header
+    file << "frame_cnt,frame_index,image_index,start,await_fences,acquire_"
+            "image,openCL_start,openCL_done,"
+         << "update_ocean,await_image,submit_ready,submit_done,present_done,"
+            "end,vk_render_ns\n";
+
+    // Write data
+    for (const auto& sample : samples)
+    {
+        file << (sample.frame_cnt) << "," << (sample.frame_index) << ","
+             << (sample.image_index) << ","
+             << time_point_to_string(sample.start) << ","
+             << time_point_delta_to_string(sample.start, sample.await_fences)
+             << ","
+             << time_point_delta_to_string(sample.await_fences,
+                                           sample.acquire_image)
+             << ","
+             << time_point_delta_to_string(sample.acquire_image,
+                                           sample.openCL_start)
+             << ","
+             << time_point_delta_to_string(sample.openCL_start,
+                                           sample.openCL_done)
+             << ","
+             << time_point_delta_to_string(sample.openCL_done,
+                                           sample.update_ocean)
+             << ","
+             << time_point_delta_to_string(sample.update_ocean,
+                                           sample.await_image)
+             << ","
+             << time_point_delta_to_string(sample.await_image,
+                                           sample.submit_ready)
+             << ","
+             << time_point_delta_to_string(sample.submit_ready,
+                                           sample.submit_done)
+             << ","
+             << time_point_delta_to_string(sample.submit_done,
+                                           sample.present_done)
+             << ","
+             << time_point_delta_to_string(sample.present_done, sample.end)
+             << "," << sample.vk_render_ns << "\n";
+    }
+
+    file.close();
 }

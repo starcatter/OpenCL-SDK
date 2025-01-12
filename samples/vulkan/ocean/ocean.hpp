@@ -20,6 +20,8 @@
 #include "ocean_util.hpp"
 #include <CL/SDK/CLI.hpp>
 
+using clock_type = std::chrono::high_resolution_clock;
+
 class OceanApplication {
 
 public:
@@ -34,37 +36,48 @@ public:
     CliOptions app_opts;
 
 private:
-    struct PerFrameData{
+    struct PerFrameData
+    {
         UniformBufferObject data;
-        void * buffer_memory;
+        void* buffer_memory;
     };
 
     std::vector<PerFrameData> per_frame;
 
+    // Poza startem, timestampy są po każdej czynności
     template <typename T> struct TimingData
     {
-        T start;
-        T await_fences;
-        T acquire_image;
+        T start; // 0: początek render loop
+        T await_fences; // 1: czekaliśmy na generowanie danych do nast klatki
+                        // (zwolnienie zasobów w których będą te dane)
+        T acquire_image; // 2: czekaliśmy na klatkę do wyświetlenia (czas między
+                         // zwolnieniem zasobów wraz z końcem renderowania a
+                         // dostępnością obrazu)
 
-            T title_fps;
-            T uniforms;
-            T openCL_start;
-            T openCL_done;
+        T openCL_start; // 3c: początek wysyłania obliczeń OpenCL
+        T openCL_done; // 3d: koniec pobierania wyników z OpenCL
 
-        T update_ocean;
+        T update_ocean; // 3: zawiera 4 poprzednie wyniki, PO przygotowaniu
+                        // danych do następnej klatki
 
-        T await_submit;
-        T rendering_start;
-        T rendering_done;
-        T end;
+        T await_image; // 4: czekaliśmy na zwolnienie zasobów dla obrazu do
+                       // którego będziemy renderowali klatkę
+        T submit_ready; // 5: przygotowaliśmy wszystko by zlecić renderowanie
+                        // kolejnej klatki
+        T submit_done; // 6: zleciliśmy renderowanie kolejnej klatki
+        T present_done; // 7: wyświetliliśmy (poprzednią?) klatkę na ekranie
+        T end; // 8: koniec render loop
 
-        double vk_render_ns;
+        double vk_render_ns; // A: Wewnętrzny czas renderowania (poprzedniej?)
+                             // klatki w vk. Mierzone na GPU.
+        uint32_t frame_index; // B: Nr klatki w buforze
+        uint32_t image_index; // C: Nr obrazu w buforze
+        size_t frame_cnt; // D: Licznik klatek
 
         explicit TimingData(T start);
     };
 
-    std::vector<TimingData<std::chrono::high_resolution_clock::time_point>> samples;
+    std::vector<TimingData<clock_type::time_point>> samples;
 
 private:
     // TODO: identify pool size by scanning benchmark requirements
@@ -373,8 +386,11 @@ private:
                    const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                    void* pUserData);
     void print_results(long runtime_milliseconds);
+    void save_results(std::string filename);
 };
 
-template <typename T> OceanApplication::TimingData<T>::TimingData(T start) : start(start) {}
+template <typename T>
+OceanApplication::TimingData<T>::TimingData(T start): start(start)
+{}
 
 #endif // OCEAN_HPP
