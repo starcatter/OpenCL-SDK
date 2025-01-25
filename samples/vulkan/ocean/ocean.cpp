@@ -80,6 +80,14 @@ void OceanApplication::init_openCL()
         "Running on device: %s\n",
         devices[dev_opts.triplet.dev_index].getInfo<CL_DEVICE_NAME>().c_str());
 
+    cl_device_name =
+        devices[dev_opts.triplet.dev_index].getInfo<CL_DEVICE_NAME>();
+    while (cl_device_name.find(' ') != std::string::npos)
+    {
+        cl_device_name =
+            cl_device_name.replace(cl_device_name.find(' '), 1, "_");
+    }
+
     check_openCL_ext_mem_support(devices[dev_opts.triplet.dev_index]);
 
     int error = CL_SUCCESS;
@@ -2967,7 +2975,8 @@ void OceanApplication::save_results(std::string filename)
     }
 
     // Write header
-    file << "frame_cnt,frame_index,image_index,start,await_fences,acquire_"
+    file << "frame_cnt,frame_index,image_index,frame_time,start,await_fences,"
+            "acquire_"
             "image,openCL_start,openCL_done,"
          << "update_ocean,await_image,submit_ready,submit_done,present_done,"
             "end,vk_render_ns\n";
@@ -2977,6 +2986,7 @@ void OceanApplication::save_results(std::string filename)
     {
         file << (sample.frame_cnt) << "," << (sample.frame_index) << ","
              << (sample.image_index) << ","
+             << time_point_delta_to_string(sample.start, sample.end) << ","
              << time_point_to_string(sample.start) << ","
              << time_point_delta_to_string(sample.start, sample.await_fences)
              << ","

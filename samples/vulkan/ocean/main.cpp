@@ -54,7 +54,16 @@ void OceanApplication::main_loop()
     glfwSetScrollCallback(window, glfw_mouse_roll);
 
     auto start = clock_type::now();
-    while (!glfwWindowShouldClose(window))
+
+    if (app_opts.num_frames > 0)
+    {
+        samples.reserve(app_opts.num_frames);
+        printf("Capturing %lu frames...\n", app_opts.num_frames);
+    }
+
+    while (
+        !glfwWindowShouldClose(window)
+        && (app_opts.num_frames == 0 || samples.size() < app_opts.num_frames))
     {
         samples.emplace_back(clock_type::now());
         draw_frame();
@@ -74,8 +83,11 @@ void OceanApplication::main_loop()
     auto in_time_t = std::chrono::system_clock::to_time_t(end);
 
     std::stringstream ss;
-    ss << "timings_vk_interop_";
-    ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
+    ss << "timings_vk_interop";
+    ss << "_" << cl_device_name;
+    ss << "_" << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
+    ss << "_" << (app_opts.immediate ? "MAX-FPS" : "LIMIT-FPS");
+    ss << "_" << app_opts.num_instances;
     ss << ".csv";
 
     const auto filename = ss.str();
@@ -95,6 +107,9 @@ template <> auto cl::sdk::parse<CliOptions>()
         std::make_shared<TCLAP::ValueArg<size_t>>(
             "", "numInstances", "Number of ocean grid instances", false, 1,
             "positive integral"),
+        std::make_shared<TCLAP::ValueArg<size_t>>("", "numFrames",
+                                                  "Number of frames to capture",
+                                                  false, 0, "integral number"),
         std::make_shared<TCLAP::ValueArg<std::int32_t>>(
             "", "vulkan_device", "Vulkan physical device", false, -1,
             "integral number"),
@@ -116,6 +131,7 @@ CliOptions cl::sdk::comprehend<CliOptions>(
     std::shared_ptr<TCLAP::ValueArg<size_t>> window_width,
     std::shared_ptr<TCLAP::ValueArg<size_t>> window_height,
     std::shared_ptr<TCLAP::ValueArg<size_t>> num_instaces,
+    std::shared_ptr<TCLAP::ValueArg<size_t>> num_frames,
     std::shared_ptr<TCLAP::ValueArg<std::int32_t>> vulkan_device,
     std::shared_ptr<TCLAP::ValueArg<bool>> immediate,
     std::shared_ptr<TCLAP::ValueArg<bool>> linearImages,
@@ -123,10 +139,11 @@ CliOptions cl::sdk::comprehend<CliOptions>(
     std::shared_ptr<TCLAP::ValueArg<bool>> useExternalMemory)
 {
     return CliOptions{
-        window_width->getValue(),      window_height->getValue(),
-        num_instaces->getValue(),      vulkan_device->getValue(),
-        immediate->getValue(),         linearImages->getValue(),
-        deviceLocalImages->getValue(), useExternalMemory->getValue()
+        window_width->getValue(),     window_height->getValue(),
+        num_instaces->getValue(),     num_frames->getValue(),
+        vulkan_device->getValue(),    immediate->getValue(),
+        linearImages->getValue(),     deviceLocalImages->getValue(),
+        useExternalMemory->getValue()
     };
 }
 

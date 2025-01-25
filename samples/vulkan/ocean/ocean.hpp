@@ -262,6 +262,7 @@ private:
     // The timestampPeriod property of the device tells how many nanoseconds a
     // timestep translates to
     float timestampPeriod{};
+    std::string cl_device_name;
 
     void init_window();
     void init_openCL();
