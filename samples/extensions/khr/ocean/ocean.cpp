@@ -378,6 +378,49 @@ std::string time_point_delta_to_string(const clock_type::time_point& prev,
     return std::to_string(delta);
 }
 
+void OceanApplication::run()
+{
+    setActive(true);
+
+    initializeGL();
+
+    opencl_context = cl::sdk::get_interop_context(plat_id, dev_id, dev_type);
+
+    cl_khr_gl_event_supported = opencl_context.getInfo<CL_CONTEXT_DEVICES>()
+                                    .at(0)
+                                    .getInfo<CL_DEVICE_EXTENSIONS>()
+                                    .find("cl_khr_gl_event")
+        != cl::string::npos;
+
+    initializeCL();
+
+    if (num_frames > 0)
+    {
+        samples.reserve(num_frames);
+        printf("Capturing %lu frames...\n", num_frames);
+    }
+
+    while (isOpen() && (num_frames == 0 || samples.size() < num_frames))
+    {
+        //        T start; // 0: początek render loop
+        //        T openGL_start;
+        render();
+        //        T openGL_done;
+
+        display();
+
+        //        T openCL_start;
+        updateScene();
+        //        T openCL_done;
+        //        T end; // 8: koniec render loop
+
+        sf::Event ev;
+        while (pollEvent(ev)) event(ev);
+    }
+
+    setActive(false);
+}
+
 void OceanApplication::save_results(std::string filename)
 {
     std::ofstream file(filename);

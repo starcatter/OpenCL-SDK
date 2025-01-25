@@ -47,6 +47,10 @@ public:
 
     void save_results(std::string filename);
 
+    size_t num_frames;
+
+    std::string cl_device_name;
+
 protected:
     virtual void
     initializeGL() override; // Function that initializes all OpenGL assets
@@ -82,6 +86,8 @@ public:
 
     void keyboard(int key);
     void mouseDrag(const int x, const int y);
+    void run();
+
 
 public:
 

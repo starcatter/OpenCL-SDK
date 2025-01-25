@@ -47,7 +47,6 @@ namespace sdk {
         cl::Context opencl_context;
         bool cl_khr_gl_event_supported;
 
-    private:
         cl_uint plat_id;
         cl_uint dev_id;
         cl_bitfield dev_type;

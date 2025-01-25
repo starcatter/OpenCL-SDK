@@ -202,6 +202,29 @@ void OceanApplication::initializeCL()
         use_cl_khr_gl_sharing = false;
     }
 
+    std::vector<cl::Platform> platforms;
+    cl::Platform::get(&platforms);
+
+    printf("Running on platform: %s\n",
+           platforms[dev_opts.triplet.plat_index]
+               .getInfo<CL_PLATFORM_NAME>()
+               .c_str());
+    std::vector<cl::Device> devices;
+    platforms[dev_opts.triplet.plat_index].getDevices(CL_DEVICE_TYPE_ALL,
+                                                      &devices);
+
+    printf(
+        "Running on device: %s\n",
+        devices[dev_opts.triplet.dev_index].getInfo<CL_DEVICE_NAME>().c_str());
+
+    cl_device_name =
+        devices[dev_opts.triplet.dev_index].getInfo<CL_DEVICE_NAME>();
+    while (cl_device_name.find(' ') != std::string::npos)
+    {
+        cl_device_name =
+            cl_device_name.replace(cl_device_name.find(' '), 1, "_");
+    }
+
     int error = CL_SUCCESS;
     error |= clGetDeviceInfo(
         device(), CL_DEVICE_IMAGE2D_MAX_WIDTH,
@@ -479,7 +502,7 @@ void OceanApplication::update_spectrum(float elapsed)
         }
     }
 
-    if(use_cl_khr_gl_sharing)
+    if (use_cl_khr_gl_sharing)
     {
         for (size_t target = 0; target < texture_images.size(); target++)
             clEnqueueAcquireGLObjects(command_queue(), 1,
@@ -515,10 +538,9 @@ void OceanApplication::update_spectrum(float elapsed)
             cl::NDRange{ ocean_tex_size, ocean_tex_size }, lws, nullptr);
     }
 
-    if(use_cl_khr_gl_sharing)
+    if (use_cl_khr_gl_sharing)
     {
-        if (cl_khr_gl_event_supported == false)
-            command_queue.finish();
+        if (cl_khr_gl_event_supported == false) command_queue.finish();
         for (size_t target = 0; target < texture_images.size(); target++)
             clEnqueueReleaseGLObjects(command_queue(), 1,
                                       &(*ocl_image_mems[target])(), 0,
@@ -551,15 +573,20 @@ template <> auto cl::sdk::parse<CliOptions>()
                                                 true, "boolean"),
         std::make_shared<TCLAP::ValueArg<size_t>>(
             "", "numInstances", "Number of ocean grid instances", false, 1,
-            "positive integral"));
+            "positive integral"),
+        std::make_shared<TCLAP::ValueArg<size_t>>("", "numFrames",
+                                                  "Number of frames to capture",
+                                                  false, 0, "integral number"));
 }
 
 template <>
 CliOptions cl::sdk::comprehend<CliOptions>(
     std::shared_ptr<TCLAP::ValueArg<bool>> useGLSharing,
-    std::shared_ptr<TCLAP::ValueArg<size_t>> num_instaces)
+    std::shared_ptr<TCLAP::ValueArg<size_t>> num_instaces,
+    std::shared_ptr<TCLAP::ValueArg<size_t>> num_frames)
 {
-    return CliOptions{ useGLSharing->getValue(), num_instaces->getValue() };
+    return CliOptions{ useGLSharing->getValue(), num_instaces->getValue(),
+                       num_frames->getValue() };
 }
 
 int main(int argc, char* argv[])
@@ -579,6 +606,7 @@ int main(int argc, char* argv[])
         app.dev_opts = dev_opts;
         app.use_cl_khr_gl_sharing = std::get<2>(opts).use_gl_sharing;
         app.num_instances = std::get<2>(opts).num_instaces;
+        app.num_frames = std::get<2>(opts).num_frames;
 
         app.run();
     } catch (cl::util::Error& e)
@@ -616,7 +644,9 @@ int main(int argc, char* argv[])
 
     std::stringstream ss;
     ss << "timings_gl_interop_";
-    ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
+    ss << "_" << app.cl_device_name;
+    ss << "_" << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
+    ss << "_" << app.num_instances;
     ss << ".csv";
 
     const auto filename = ss.str();
