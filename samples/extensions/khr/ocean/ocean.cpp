@@ -351,7 +351,7 @@ void OceanApplication::update_uniforms()
 
 std::string time_point_to_string(const clock_type::time_point& tp)
 {
-    auto in_time_t = std::chrono::system_clock::to_time_t(tp);
+    auto in_time_t = OceanApplication::clock_to_time_t(tp);
     std::stringstream ss;
     ss << std::put_time(std::localtime(&in_time_t), "%X");
 

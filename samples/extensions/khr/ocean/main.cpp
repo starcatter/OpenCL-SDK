@@ -640,13 +640,14 @@ int main(int argc, char* argv[])
 
     auto end = clock_type::now();
     // generate file name
-    auto in_time_t = std::chrono::system_clock::to_time_t(end);
+    auto in_time_t = OceanApplication::clock_to_time_t(end);
 
     std::stringstream ss;
     ss << "timings_gl_interop_";
     ss << "_" << app.cl_device_name;
-    ss << "_" << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
+    ss << "_" << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%H%M%S");
     ss << "_" << app.num_instances;
+    ss << "_" << app.window_width << "x" << app.window_height;
     ss << ".csv";
 
     const auto filename = ss.str();

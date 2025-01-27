@@ -20,7 +20,7 @@
 #include "ocean_util.hpp"
 #include <CL/SDK/CLI.hpp>
 
-using clock_type = std::chrono::high_resolution_clock;
+using clock_type = std::chrono::steady_clock;
 
 class OceanApplication {
 
@@ -31,6 +31,16 @@ public:
     void mouse_pos(double pX, double pY);
     void mouse_roll(double offset_x, double offset_y);
 
+    static __int64_t clock_to_time_t( clock_type::time_point t )
+    {
+        using sys_clock = std::chrono::system_clock;
+    
+        const auto diff = t - clock_type::now();
+        const auto duration = std::chrono::duration_cast<sys_clock::duration>(diff);
+    
+        return sys_clock::to_time_t(sys_clock::now() + duration);
+    }
+    
 public:
     cl::sdk::options::SingleDevice dev_opts;
     CliOptions app_opts;

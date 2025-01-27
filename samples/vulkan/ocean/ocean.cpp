@@ -2914,10 +2914,10 @@ void OceanApplication::print_results(long runtime_milliseconds)
         avg_vk_ns += sample.vk_render_ns / samples.size();
     }
 
-    printf("Average time: %6.3lf ms / %4.1lf FPS; Took %lu samples\n",
+    printf("Average time: %6.3lf ms / %4.1lf FPS; Took %zu samples\n",
            avg_frame_us / 1000., (1000'000. / avg_frame_us), samples.size());
 
-    printf("Total measured: %6.6lf ms (%6lu us)\n", total_us / 1000., total_us);
+    printf("Total measured: %6.6lf ms (%6llu us)\n", total_us / 1000., total_us);
 
     double ms_per_frame = (runtime_milliseconds * 1.) / (samples.size() * 1.);
 
@@ -2936,9 +2936,11 @@ void OceanApplication::print_results(long runtime_milliseconds)
     printf("    Acquiring image: %3.6lf ms\n ", avg_ack_us / 1000.);
 }
 
+
+
 std::string time_point_to_string(const clock_type::time_point& tp)
 {
-    auto in_time_t = std::chrono::system_clock::to_time_t(tp);
+    auto in_time_t = OceanApplication::clock_to_time_t(tp);
     std::stringstream ss;
     ss << std::put_time(std::localtime(&in_time_t), "%X");
 

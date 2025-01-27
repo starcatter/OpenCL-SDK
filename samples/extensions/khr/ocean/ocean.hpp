@@ -26,7 +26,7 @@
 // OpenGL includes
 #include <SFML/OpenGL.hpp>
 
-using clock_type = std::chrono::high_resolution_clock;
+using clock_type = std::chrono::steady_clock;
 
 class OceanApplication : public cl::sdk::InteropWindow {
 public:
@@ -51,6 +51,20 @@ public:
 
     std::string cl_device_name;
 
+    size_t window_width = 800;
+
+    size_t window_height = 800;
+
+    static __int64_t clock_to_time_t( clock_type::time_point t )
+    {
+        using sys_clock = std::chrono::system_clock;
+    
+        const auto diff = t - clock_type::now();
+        const auto duration = std::chrono::duration_cast<sys_clock::duration>(diff);
+    
+        return sys_clock::to_time_t(sys_clock::now() + duration);
+    }
+    
 protected:
     virtual void
     initializeGL() override; // Function that initializes all OpenGL assets
@@ -157,9 +171,6 @@ private:
     int sun_elevation = 0;
     int sun_azimuth = 90;
     bool wireframe_mode = false;
-
-    size_t window_width = 1024;
-    size_t window_height = 1024;
 
     std::chrono::system_clock::time_point start =
         std::chrono::system_clock::now();

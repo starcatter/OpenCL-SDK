@@ -58,7 +58,7 @@ void OceanApplication::main_loop()
     if (app_opts.num_frames > 0)
     {
         samples.reserve(app_opts.num_frames);
-        printf("Capturing %lu frames...\n", app_opts.num_frames);
+        printf("Capturing %zu frames...\n", app_opts.num_frames);
     }
 
     while (
@@ -80,14 +80,15 @@ void OceanApplication::main_loop()
     print_results(runtime_milliseconds);
 
     // generate file name
-    auto in_time_t = std::chrono::system_clock::to_time_t(end);
+    auto in_time_t = OceanApplication::clock_to_time_t(end);
 
     std::stringstream ss;
     ss << "timings_vk_interop";
     ss << "_" << cl_device_name;
-    ss << "_" << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%X");
+    ss << "_" << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d-%H%M%S");
     ss << "_" << (app_opts.immediate ? "MAX-FPS" : "LIMIT-FPS");
     ss << "_" << app_opts.num_instances;
+    ss << "_" << app_opts.window_width << "x" << app_opts.window_height;
     ss << ".csv";
 
     const auto filename = ss.str();
